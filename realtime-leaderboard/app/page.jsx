@@ -1,10 +1,5 @@
-import Leaderboard from './components/Leaderboard'
+import { redirect } from "next/navigation"
 
-export default function Page() {
-  return (
-    <main>
-      <h1>Realtime Leaderboard</h1>
-      <Leaderboard />
-    </main>
-  )
+export default function Home() {
+  redirect("/leaderboard")
 }
