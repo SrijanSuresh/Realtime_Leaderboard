@@ -7,12 +7,37 @@ export default function Leaderboard() {
   const [localPlayers, setLocalPlayers] = useState([])
   const [leaderboardData, setLeaderboardData] = useState([])
 
-  const fetchLeaderboard = async () => {
-    const res = await fetch('/api/leaderboard')
-    const data = await res.json()
-    setLeaderboardData(data)
-  }
-
+    const fetchLeaderboard = async () => {
+    try {
+        const res = await fetch('/api/leaderboard');
+        
+        if (!res.ok) {
+        console.error('Server error:', res.status, res.statusText);
+        setLeaderboardData([]);
+        return;
+        }
+        
+        // Check if response is empty
+        const text = await res.text();
+        if (!text) {
+        console.log('Empty response from server');
+        setLeaderboardData([]);
+        return;
+        }
+        
+        // Try to parse the response text
+        try {
+        const data = JSON.parse(text);
+        setLeaderboardData(data || []);
+        } catch (parseError) {
+        console.error('Failed to parse JSON:', parseError);
+        setLeaderboardData([]);
+        }
+    } catch (error) {
+        console.error('Network error:', error);
+        setLeaderboardData([]);
+    }
+    }
   const handleAddPlayer = async () => {
     if (!playerName || !playerScore || localPlayers.length >= 10) return
 
