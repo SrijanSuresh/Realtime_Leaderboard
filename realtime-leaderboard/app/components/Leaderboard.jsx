@@ -1,6 +1,13 @@
 'use client'
 import useSWR from 'swr'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Card } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Dialog } from "@/components/ui/dialog"
+import { Tabs } from "@/components/ui/tabs"
+import { Slider } from "@/components/ui/slider"
 
 const Leaderboard = () => {
   const [name, setName] = useState('')
