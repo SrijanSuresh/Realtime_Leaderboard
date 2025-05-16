@@ -1,118 +1,100 @@
-import { createClient } from "redis";
+import { createClient } from 'redis'
 
-// Singleton Redis client
-let client = null;
+// Create a Redis client with configuration that works with Docker
+const redis = createClient({
+  url: process.env.REDIS_URL || 'redis://localhost:6379'
+})
 
-// Connection function with error handling
-async function getClient() {
-  if (!client) {
-    try {
-      client = createClient({
-        url: process.env.REDIS_URL || 'redis://localhost:6379'
-      });
-      
-      // Listen for connection errors
-      client.on('error', (err) => {
-        console.error('Redis connection error:', err);
-        client = null; // Reset client on error
-      });
-      
-      console.log('Connecting to Redis...');
-      await client.connect();
-      console.log('Redis connected successfully');
-    } catch (err) {
-      console.error('Failed to connect to Redis:', err);
-      client = null; // Reset on connection failure
-      throw new Error(`Redis connection failed: ${err.message}`);
-    }
+redis.on('error', err => console.log('Redis Client Error', err))
+
+// Connect to Redis only when needed
+let connected = false
+async function getRedisClient() {
+  if (!connected) {
+    await redis.connect()
+    connected = true
   }
-  return client;
+  return redis
 }
 
-// GET - Fetch the leaderboard
-export async function GET() {
+export async function GET(request) {
   try {
-    const redis = await getClient();
-    
-    // Get top scores in descending order (highest first)
-    const leaderboard = await redis.zRangeWithScores("leaderboard", 0, -1, { REV: true });
-    
-    console.log("Fetched leaderboard:", leaderboard);
-    return Response.json(leaderboard || []);
+    const client = await getRedisClient()
+    // Get capacity from query params, default to 10
+    let capacity = 10
+    if (request && request.nextUrl) {
+      const url = new URL(request.nextUrl)
+      const capParam = url.searchParams.get('capacity')
+      if (capParam && !isNaN(parseInt(capParam))) {
+        capacity = parseInt(capParam)
+      }
+    }
+    // Using zRangeWithScores which is the updated API method
+    // Note: We use REV and specify the range from highest to lowest score
+    const leaderboard = await client.zRange('leaderboard', 0, capacity - 1, {
+      REV: true,
+      WITHSCORES: true
+    })
+    // Format the results
+    const formattedLeaderboard = []
+    for (let i = 0; i < leaderboard.length; i += 2) {
+      formattedLeaderboard.push({
+        name: leaderboard[i],
+        score: parseFloat(leaderboard[i + 1])
+      })
+    }
+    return Response.json(formattedLeaderboard)
   } catch (error) {
-    console.error("Error fetching leaderboard:", error);
+    console.error('GET Error:', error)
     return Response.json(
-      { error: error.message }, 
+      { error: 'Failed to fetch leaderboard' },
       { status: 500 }
-    );
+    )
   }
 }
 
-// POST - Add a new player score
 export async function POST(request) {
   try {
-    // Parse the request body
-    const body = await request.json();
-    const { name, score } = body;
+    const { name, score } = await request.json()
     
-    // Validate input
-    if (!name || score === undefined) {
+    if (!name || typeof score !== 'number') {
       return Response.json(
-        { error: "Name and score are required" },
+        { error: 'Invalid player data' },
         { status: 400 }
-      );
+      )
     }
-    
-    console.log(`Adding player ${name} with score ${score}`);
-    
-    // Get Redis client and add score
-    const redis = await getClient();
-    const result = await redis.zAdd("leaderboard", [{ 
-      score: Number(score), 
-      value: String(name) 
-    }]);
-    
-    console.log(`Added to leaderboard, result: ${result}`);
-    
-    // Get updated leaderboard
-    const updatedLeaderboard = await redis.zRangeWithScores("leaderboard", 0, -1, { REV: true });
-    
-    return Response.json({ 
-      success: true,
-      added: { name, score },
-      leaderboard: updatedLeaderboard
-    });
+
+    const client = await getRedisClient()
+    await client.zAdd('leaderboard', {
+      value: name,
+      score: score
+    })
+    return Response.json({ success: true })
   } catch (error) {
-    console.error("Error adding player:", error);
+    console.error('POST Error:', error)
     return Response.json(
-      { error: error.message }, 
+      { error: 'Failed to add player' },
       { status: 500 }
-    );
+    )
   }
 }
 
-// DELETE - Clear the leaderboard
 export async function DELETE(request) {
   try {
-    const url = new URL(request.url);
-    
-    // Only process with clear=true parameter
-    if (url.searchParams.get('clear') === 'true') {
-      const redis = await getClient();
-      await redis.del("leaderboard");
-      console.log("Leaderboard cleared");
-      return Response.json({ success: true });
-    } else {
-      return Response.json(
-        { error: "Invalid delete request. Use ?clear=true to clear the leaderboard" },
-        { status: 400 }
-      );
+    const { name, clearAll } = await request.json()
+    const client = await getRedisClient()
+
+    if (clearAll) {
+      await client.del('leaderboard')
+    } else if (name) {
+      await client.zRem('leaderboard', name)
     }
+    return Response.json({ success: true })
   } catch (error) {
-    console.error("Error clearing leaderboard:", error);
+    console.error('DELETE Error:', error)
     return Response.json(
-      { error: error.message },
+      { error: 'Failed to remove player(s)' },
       { status: 500 }
-    );
+    )
   }
 }
